@@ -1,21 +1,21 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"net/http"
 )
 
-type apiHandler struct{}
-
 func main() {
-	mux := http.NewServeMux()
-	server := http.Server{}
-	server.Handler = mux
-	server.Addr = ":8080"
-	mux.Handle("/", http.FileServer(http.Dir(".")))
+	const filepathRoot = "."
+	const port = "8080"
 
-	err := server.ListenAndServe()
-	if err != nil {
-		fmt.Println(err)
+	mux := http.NewServeMux()
+	mux.Handle("/", http.FileServer(http.Dir(filepathRoot)))
+	server := &http.Server{
+		Handler: mux,
+		Addr:    ":" + port,
 	}
+
+	log.Printf("Serving files from %s on port %s", filepathRoot, port)
+	log.Fatal(server.ListenAndServe())
 }
