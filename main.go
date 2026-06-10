@@ -45,9 +45,9 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/app/", http.StripPrefix("/app",
 		apiCFG.middlewareMetricsInc(http.FileServer(http.Dir(filepathRoot)))))
-	mux.HandleFunc("/healthz", handleReadiness)
-	mux.HandleFunc("/metrics", apiCFG.handleMetrics)
-	mux.HandleFunc("/reset", apiCFG.handleReset)
+	mux.HandleFunc("GET /healthz", handleReadiness)
+	mux.HandleFunc("GET /metrics", apiCFG.handleMetrics)
+	mux.HandleFunc("POST /reset", apiCFG.handleReset)
 	server := &http.Server{
 		Handler: mux,
 		Addr:    ":" + port,
