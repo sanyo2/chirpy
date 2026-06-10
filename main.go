@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -18,9 +19,14 @@ type apiConfig struct {
 }
 
 func (cfg *apiConfig) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Hits: %v", cfg.fileServerHits.Load())))
+	w.Write([]byte(fmt.Sprintf(`<html>
+	<body>
+	<h1>Welcome, Chirpy Admin</h1>
+	<p>Chirpy has been visited %d times!</p>
+	</body>
+	</html>`, cfg.fileServerHits.Load())))
 }
 
 func (cfg *apiConfig) handleReset(w http.ResponseWriter, r *http.Request) {
@@ -37,6 +43,30 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	})
 }
 
+func apiValidateChirp(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Body string `json:"body"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Cannot parse JSON", err)
+		return
+	}
+
+	if len(params.Body) > 140 {
+		respondWithError(w, http.StatusBadRequest, "Chirp is too long", nil)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, successResponse{
+		Resp: true,
+	})
+}
+
 func main() {
 	const filepathRoot = "."
 	const port = "8080"
@@ -45,9 +75,10 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/app/", http.StripPrefix("/app",
 		apiCFG.middlewareMetricsInc(http.FileServer(http.Dir(filepathRoot)))))
-	mux.HandleFunc("GET /healthz", handleReadiness)
-	mux.HandleFunc("GET /metrics", apiCFG.handleMetrics)
-	mux.HandleFunc("POST /reset", apiCFG.handleReset)
+	mux.HandleFunc("GET /api/healthz", handleReadiness)
+	mux.HandleFunc("GET /admin/metrics", apiCFG.handleMetrics)
+	mux.HandleFunc("POST /admin/reset", apiCFG.handleReset)
+	mux.HandleFunc("POST /api/validate_chirp", apiValidateChirp)
 	server := &http.Server{
 		Handler: mux,
 		Addr:    ":" + port,
