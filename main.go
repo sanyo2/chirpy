@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -62,8 +63,28 @@ func apiValidateChirp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type successResponse struct {
+		CleanedBody string `json:"cleaned_body"`
+	}
+
+	badWords := map[string]struct{}{
+		"kerfuffle": {},
+		"sharbert":  {},
+		"fornax":    {},
+	}
+
+	var allWords []string
+
+	for _, word := range strings.Split(params.Body, " ") {
+		if _, ok := badWords[strings.ToLower(word)]; ok {
+			allWords = append(allWords, "****")
+			continue
+		}
+		allWords = append(allWords, word)
+	}
+
 	respondWithJSON(w, http.StatusOK, successResponse{
-		Resp: true,
+		CleanedBody: strings.Join(allWords, " "),
 	})
 }
 
