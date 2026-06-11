@@ -1,12 +1,18 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
+	"os"
 	"sync/atomic"
+
+	"github.com/joho/godotenv"
+	"github.com/sanyo2/chirpy/internal/database"
+
+	_ "github.com/lib/pq"
 )
 
 func handleReadiness(w http.ResponseWriter, r *http.Request) {
@@ -17,6 +23,7 @@ func handleReadiness(w http.ResponseWriter, r *http.Request) {
 
 type apiConfig struct {
 	fileServerHits atomic.Int32
+	dbQueries      *database.Queries
 }
 
 func (cfg *apiConfig) handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -67,31 +74,24 @@ func apiValidateChirp(w http.ResponseWriter, r *http.Request) {
 		CleanedBody string `json:"cleaned_body"`
 	}
 
-	badWords := map[string]struct{}{
-		"kerfuffle": {},
-		"sharbert":  {},
-		"fornax":    {},
-	}
-
-	var allWords []string
-
-	for _, word := range strings.Split(params.Body, " ") {
-		if _, ok := badWords[strings.ToLower(word)]; ok {
-			allWords = append(allWords, "****")
-			continue
-		}
-		allWords = append(allWords, word)
-	}
-
 	respondWithJSON(w, http.StatusOK, successResponse{
-		CleanedBody: strings.Join(allWords, " "),
+		CleanedBody: replaceBadWords(params.Body),
 	})
 }
 
 func main() {
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatal("DB Connection error")
+	}
+
 	const filepathRoot = "."
 	const port = "8080"
-	apiCFG := apiConfig{}
+	apiCFG := apiConfig{
+		dbQueries: database.New(db),
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/app/", http.StripPrefix("/app",
