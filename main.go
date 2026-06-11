@@ -25,6 +25,7 @@ func main() {
 	apiCFG := apiConfig{
 		DBURL:     os.Getenv("DB_URL"),
 		PLATFORM:  os.Getenv("PLATFORM"),
+		DB:        db,
 		DBQueries: database.New(db),
 	}
 
@@ -34,7 +35,7 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", handleReadiness)
 	mux.HandleFunc("GET /admin/metrics", apiCFG.handleMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCFG.apiReset)
-	mux.HandleFunc("POST /api/validate_chirp", apiValidateChirp)
+	mux.HandleFunc("POST /api/chirps", apiCFG.apiChirp)
 	mux.HandleFunc("POST /api/users", apiCFG.apiUsers)
 	server := &http.Server{
 		Handler: mux,

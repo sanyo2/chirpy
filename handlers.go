@@ -4,10 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync/atomic"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/sanyo2/chirpy/internal/database"
 )
 
@@ -15,13 +12,6 @@ func handleReadiness(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(http.StatusText(http.StatusOK)))
-}
-
-type apiConfig struct {
-	fileServerHits atomic.Int32
-	DBURL          string
-	PLATFORM       string
-	DBQueries      *database.Queries
 }
 
 func (cfg *apiConfig) handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -61,13 +51,10 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	})
 }
 
-func apiValidateChirp(w http.ResponseWriter, r *http.Request) {
-	type parameters struct {
-		Body string `json:"body"`
-	}
+func (cfg *apiConfig) apiChirp(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
-	params := parameters{}
+	params := apiChirpParams{}
 	err := decoder.Decode(&params)
 
 	if err != nil {
@@ -80,24 +67,19 @@ func apiValidateChirp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type successResponse struct {
-		CleanedBody string `json:"cleaned_body"`
+	params.Body = replaceBadWords(params.Body)
+
+	entry, err := cfg.DBQueries.CreateChirp(r.Context(), database.CreateChirpParams{
+		Body:   params.Body,
+		UserID: params.UserID,
+	})
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot create chirp", err)
+		return
 	}
 
-	respondWithJSON(w, http.StatusOK, successResponse{
-		CleanedBody: replaceBadWords(params.Body),
-	})
-}
-
-type apiUserRequest struct {
-	Email string `json:"email"`
-}
-
-type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	respondWithJSON(w, http.StatusCreated, Chirp(entry))
 }
 
 func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
@@ -117,5 +99,4 @@ func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusCreated, User(entry))
-
 }
