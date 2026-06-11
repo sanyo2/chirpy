@@ -13,21 +13,21 @@ import (
 )
 
 func main() {
+	const filepathRoot = "."
+	const port = "8080"
 	godotenv.Load()
-	dbURL := os.Getenv("DB_URL")
-	db, err := sql.Open("postgres", dbURL)
+
+	apiCFG := apiConfig{
+		DBURL:    os.Getenv("DB_URL"),
+		PLATFORM: os.Getenv("PLATFORM"),
+	}
+
+	db, err := sql.Open("postgres", apiCFG.DBURL)
 	if err != nil {
 		log.Fatal("DB Connection error")
 	}
-
-	const filepathRoot = "."
-	const port = "8080"
-	apiCFG := apiConfig{
-		DBURL:     os.Getenv("DB_URL"),
-		PLATFORM:  os.Getenv("PLATFORM"),
-		DB:        db,
-		DBQueries: database.New(db),
-	}
+	apiCFG.DB = db
+	apiCFG.DBQueries = database.New(apiCFG.DB)
 
 	mux := http.NewServeMux()
 	mux.Handle("/app/", http.StripPrefix("/app",
@@ -35,7 +35,8 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", handleReadiness)
 	mux.HandleFunc("GET /admin/metrics", apiCFG.handleMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCFG.apiReset)
-	mux.HandleFunc("POST /api/chirps", apiCFG.apiChirp)
+	mux.HandleFunc("POST /api/chirps", apiCFG.apiAddChirp)
+	mux.HandleFunc("GET /api/chirps", apiCFG.apiGetChirps)
 	mux.HandleFunc("POST /api/users", apiCFG.apiUsers)
 	server := &http.Server{
 		Handler: mux,

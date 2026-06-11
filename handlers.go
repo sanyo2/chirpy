@@ -51,7 +51,7 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	})
 }
 
-func (cfg *apiConfig) apiChirp(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) apiAddChirp(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
 	params := apiChirpParams{}
@@ -80,6 +80,21 @@ func (cfg *apiConfig) apiChirp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusCreated, Chirp(entry))
+}
+
+func (cfg *apiConfig) apiGetChirps(w http.ResponseWriter, r *http.Request) {
+	entries, err := cfg.DBQueries.GetAllChirps(r.Context())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot get chirps", err)
+		return
+	}
+
+	var values []Chirp
+	for _, entry := range entries {
+		values = append(values, Chirp(entry))
+	}
+
+	respondWithJSON(w, http.StatusOK, values)
 }
 
 func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
