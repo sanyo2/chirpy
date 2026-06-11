@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
+	"github.com/google/uuid"
+	"github.com/sanyo2/chirpy/internal/auth"
 	"github.com/sanyo2/chirpy/internal/database"
 )
 
@@ -83,18 +86,37 @@ func (cfg *apiConfig) apiAddChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) apiGetChirps(w http.ResponseWriter, r *http.Request) {
-	entries, err := cfg.DBQueries.GetAllChirps(r.Context())
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Cannot get chirps", err)
-		return
-	}
-
+	id := r.PathValue("chirpID")
+	log.Println(id)
 	var values []Chirp
-	for _, entry := range entries {
-		values = append(values, Chirp(entry))
-	}
 
-	respondWithJSON(w, http.StatusOK, values)
+	if id == "" {
+		entries, err := cfg.DBQueries.GetAllChirps(r.Context())
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Cannot get chirps", err)
+			return
+		}
+
+		for _, entry := range entries {
+			values = append(values, Chirp(entry))
+		}
+
+		respondWithJSON(w, http.StatusOK, values)
+
+	} else {
+		uuidVal, err := uuid.Parse(id)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Cannot parse UUID", err)
+			return
+		}
+		entries, err := cfg.DBQueries.GetChirpByID(r.Context(), uuidVal)
+		if err != nil {
+			respondWithError(w, http.StatusNotFound, "Cannot get chirps", err)
+			return
+		}
+
+		respondWithJSON(w, http.StatusOK, Chirp(entries))
+	}
 }
 
 func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
@@ -103,15 +125,65 @@ func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
 	err := decoder.Decode(&params)
 
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Cannot parse JSON: %v", err)
+		respondWithError(w, http.StatusBadRequest, "Cannot parse JSON", err)
 		return
 	}
 
-	entry, err := cfg.DBQueries.CreateUser(r.Context(), params.Email)
+	hashedPassword, err := auth.HashPassword(params.Password)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Cannot create user: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "Cannot hash password", err)
 		return
 	}
 
-	respondWithJSON(w, http.StatusCreated, User(entry))
+	entry, err := cfg.DBQueries.CreateUser(r.Context(), database.CreateUserParams{
+		Email:          params.Email,
+		HashedPassword: hashedPassword,
+	})
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot create user", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, User{
+		ID:        entry.ID,
+		CreatedAt: entry.CreatedAt,
+		UpdatedAt: entry.UpdatedAt,
+		Email:     entry.Email,
+	})
+}
+
+func (cfg *apiConfig) apiUsersLogin(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+	params := apiUserRequest{}
+	err := decoder.Decode(&params)
+
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Cannot parse JSON", err)
+		return
+	}
+
+	entry, err := cfg.DBQueries.GetUserPasswordByEmail(r.Context(), params.Email)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot get user", err)
+		return
+	}
+
+	passwordOk, err := auth.CheckPasswordHash(params.Password, entry.HashedPassword)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot hash password", err)
+		return
+	}
+
+	if !passwordOk {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, User{
+		ID:        entry.ID,
+		CreatedAt: entry.CreatedAt,
+		UpdatedAt: entry.UpdatedAt,
+		Email:     entry.Email,
+	})
 }

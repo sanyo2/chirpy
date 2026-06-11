@@ -23,7 +23,8 @@ type apiChirpParams struct {
 }
 
 type apiUserRequest struct {
-	Email string `json:"email"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type User struct {
