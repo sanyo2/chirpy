@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -30,6 +33,9 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 	currentTime := time.Now().UTC()
 	expirationTime := currentTime.Add(expiresIn)
 
+	fmt.Printf("\nCurrent Time: %v\n", currentTime)
+	fmt.Printf("\nNew Token Expiration: %v\n", expirationTime)
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
 		Issuer:    "chirpy-access",
 		IssuedAt:  jwt.NewNumericDate(currentTime),
@@ -46,17 +52,18 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 }
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
-
 	claim := jwt.RegisteredClaims{}
-	fmt.Println(tokenString)
-	fmt.Println(tokenSecret)
 	token, err := jwt.ParseWithClaims(tokenString, &claim,
 		func(token *jwt.Token) (interface{}, error) { return []byte(tokenSecret), nil },
 	)
 
+	fmt.Println("11111")
+
 	if err != nil {
 		return uuid.Nil, err
 	}
+
+	fmt.Println("222222")
 
 	uuidString, err := token.Claims.GetSubject()
 
@@ -64,13 +71,27 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 
+	fmt.Println("33333")
+
 	uuidValue, err := uuid.Parse(uuidString)
 
 	if err != nil {
 		return uuid.Nil, err
 	}
 
-	fmt.Println("4")
+	fmt.Println("44444")
 
 	return uuidValue, nil
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	bearerTokenStr := headers.Get("Authorization")
+
+	if bearerTokenStr == "" {
+		return "", errors.New("bearer token is empty")
+	}
+
+	bearerTokenStr = strings.Replace(bearerTokenStr, "Bearer ", "", -1)
+
+	return bearerTokenStr, nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sanyo2/chirpy/internal/auth"
@@ -56,9 +57,21 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 
 func (cfg *apiConfig) apiAddChirp(w http.ResponseWriter, r *http.Request) {
 
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Not authorized", err)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(token, cfg.SECRETKEY)
+	if userID == uuid.Nil {
+		respondWithError(w, http.StatusUnauthorized, "Not authorized", err)
+		return
+	}
+
 	decoder := json.NewDecoder(r.Body)
 	params := apiChirpParams{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Cannot parse JSON", err)
@@ -74,7 +87,7 @@ func (cfg *apiConfig) apiAddChirp(w http.ResponseWriter, r *http.Request) {
 
 	entry, err := cfg.DBQueries.CreateChirp(r.Context(), database.CreateChirpParams{
 		Body:   params.Body,
-		UserID: params.UserID,
+		UserID: userID,
 	})
 
 	if err != nil {
@@ -180,10 +193,19 @@ func (cfg *apiConfig) apiUsersLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	expirationTime := time.Duration(60 * 60 * time.Second)
+	if params.ExpiresInSeconds < expirationTime && params.ExpiresInSeconds != 0 {
+		expirationTime = params.ExpiresInSeconds
+	}
+	userToken, err := auth.MakeJWT(entry.ID, cfg.SECRETKEY, expirationTime)
+	fmt.Println("Token: " + userToken)
+	fmt.Printf("\nExp time: %v\n", expirationTime)
+
 	respondWithJSON(w, http.StatusOK, User{
 		ID:        entry.ID,
 		CreatedAt: entry.CreatedAt,
 		UpdatedAt: entry.UpdatedAt,
 		Email:     entry.Email,
+		Token:     userToken,
 	})
 }

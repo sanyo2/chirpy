@@ -18,8 +18,9 @@ func main() {
 	godotenv.Load()
 
 	apiCFG := apiConfig{
-		DBURL:    os.Getenv("DB_URL"),
-		PLATFORM: os.Getenv("PLATFORM"),
+		DBURL:     os.Getenv("DB_URL"),
+		PLATFORM:  os.Getenv("PLATFORM"),
+		SECRETKEY: os.Getenv("SECRET_KEY"),
 	}
 
 	db, err := sql.Open("postgres", apiCFG.DBURL)

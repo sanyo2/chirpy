@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -88,7 +89,6 @@ func TestCheckJWT(t *testing.T) {
 		secretString string
 		tokenString  string
 		wantErr      bool
-		match        bool
 	}{
 		{
 			name:         "ID1, Token1, TRUE",
@@ -135,6 +135,52 @@ func TestCheckJWT(t *testing.T) {
 			}
 			if !tt.wantErr && match != tt.ID {
 				t.Errorf("ValidateJWT() expects %v, got %v", tt.ID, match)
+			}
+		})
+	}
+}
+
+func TestBearerToken(t *testing.T) {
+	h1 := http.Header{
+		"Authorization": {"Bearer f0f87ec2-a8b5-48cc-b66a-a85ce7c7b862"},
+	}
+	h2 := http.Header{
+		"Authorization": {""},
+	}
+	tokenString := "f0f87ec2-a8b5-48cc-b66a-a85ce7c7b862"
+
+	tests := []struct {
+		name        string
+		h           http.Header
+		tokenString string
+		wantErr     bool
+		match       bool
+	}{
+		{
+			name:        "Valid token",
+			tokenString: tokenString,
+			h:           h1,
+			wantErr:     false,
+			match:       true,
+		},
+		{
+			name:        "No Header",
+			tokenString: tokenString,
+			h:           h2,
+			wantErr:     true,
+			match:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			match, err := GetBearerToken(tt.h)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetBearerToken() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && match != tt.tokenString {
+				t.Errorf("GetBearerToken() expects %v, got %v", tt.tokenString, match)
 			}
 		})
 	}
