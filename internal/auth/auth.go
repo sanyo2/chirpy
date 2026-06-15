@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +13,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
+
+// ErrNoAuthHeaderIncluded -
+var ErrNoAuthHeaderIncluded = errors.New("no auth header included in request")
 
 func HashPassword(password string) (string, error) {
 	hashed_password, err := argon2id.CreateHash(password, argon2id.DefaultParams)
@@ -33,9 +38,6 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 	currentTime := time.Now().UTC()
 	expirationTime := currentTime.Add(expiresIn)
 
-	fmt.Printf("\nCurrent Time: %v\n", currentTime)
-	fmt.Printf("\nNew Token Expiration: %v\n", expirationTime)
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
 		Issuer:    "chirpy-access",
 		IssuedAt:  jwt.NewNumericDate(currentTime),
@@ -57,13 +59,9 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		func(token *jwt.Token) (interface{}, error) { return []byte(tokenSecret), nil },
 	)
 
-	fmt.Println("11111")
-
 	if err != nil {
 		return uuid.Nil, err
 	}
-
-	fmt.Println("222222")
 
 	uuidString, err := token.Claims.GetSubject()
 
@@ -71,27 +69,30 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 
-	fmt.Println("33333")
-
 	uuidValue, err := uuid.Parse(uuidString)
 
 	if err != nil {
 		return uuid.Nil, err
 	}
 
-	fmt.Println("44444")
-
 	return uuidValue, nil
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
-	bearerTokenStr := headers.Get("Authorization")
-
-	if bearerTokenStr == "" {
-		return "", errors.New("bearer token is empty")
+	authHeader := headers.Get("Authorization")
+	if authHeader == "" {
+		return "", ErrNoAuthHeaderIncluded
 	}
+	splitAuth := strings.Split(authHeader, " ")
+	if len(splitAuth) < 2 || splitAuth[0] != "Bearer" {
+		return "", errors.New("malformed authorization header")
+	}
+	fmt.Printf("GetBearerToken returning: %v\n", splitAuth[1])
+	return splitAuth[1], nil
+}
 
-	bearerTokenStr = strings.Replace(bearerTokenStr, "Bearer ", "", -1)
-
-	return bearerTokenStr, nil
+func MakeRefreshToken() string {
+	token := make([]byte, 32)
+	rand.Read(token)
+	return hex.EncodeToString(token)
 }

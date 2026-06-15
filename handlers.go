@@ -56,7 +56,7 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 }
 
 func (cfg *apiConfig) apiAddChirp(w http.ResponseWriter, r *http.Request) {
-
+	fmt.Println("apiAddChirp")
 	token, err := auth.GetBearerToken(r.Header)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Not authorized", err)
@@ -99,6 +99,7 @@ func (cfg *apiConfig) apiAddChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) apiGetChirps(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("apiGetChirps")
 	id := r.PathValue("chirpID")
 	log.Println(id)
 	var values []Chirp
@@ -133,6 +134,7 @@ func (cfg *apiConfig) apiGetChirps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("apiUsers")
 	decoder := json.NewDecoder(r.Body)
 	params := apiUserRequest{}
 	err := decoder.Decode(&params)
@@ -167,45 +169,118 @@ func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) apiUsersLogin(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("apiUsersLogin")
+	type parameters struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	type response struct {
+		User
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+
 	decoder := json.NewDecoder(r.Body)
-	params := apiUserRequest{}
+	params := parameters{}
 	err := decoder.Decode(&params)
-
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Cannot parse JSON", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
 		return
 	}
 
-	entry, err := cfg.DBQueries.GetUserPasswordByEmail(r.Context(), params.Email)
+	user, err := cfg.DBQueries.GetUserByEmail(r.Context(), params.Email)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Cannot get user", err)
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password", err)
 		return
 	}
 
-	passwordOk, err := auth.CheckPasswordHash(params.Password, entry.HashedPassword)
+	match, err := auth.CheckPasswordHash(params.Password, user.HashedPassword)
+	if err != nil || !match {
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password", err)
+		return
+	}
+
+	accessToken, err := auth.MakeJWT(
+		user.ID,
+		cfg.SECRETKEY,
+		time.Hour,
+	)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Cannot hash password", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create access JWT", err)
 		return
 	}
 
-	if !passwordOk {
-		respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
-		return
-	}
+	refreshToken := auth.MakeRefreshToken()
 
-	expirationTime := time.Duration(60 * 60 * time.Second)
-	if params.ExpiresInSeconds < expirationTime && params.ExpiresInSeconds != 0 {
-		expirationTime = params.ExpiresInSeconds
-	}
-	userToken, err := auth.MakeJWT(entry.ID, cfg.SECRETKEY, expirationTime)
-	fmt.Println("Token: " + userToken)
-	fmt.Printf("\nExp time: %v\n", expirationTime)
-
-	respondWithJSON(w, http.StatusOK, User{
-		ID:        entry.ID,
-		CreatedAt: entry.CreatedAt,
-		UpdatedAt: entry.UpdatedAt,
-		Email:     entry.Email,
-		Token:     userToken,
+	_, err = cfg.DBQueries.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
+		UserID:    user.ID,
+		Token:     refreshToken,
+		ExpiresAt: time.Now().UTC().Add(time.Hour * 24 * 60),
 	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't save refresh token", err)
+		return
+	}
+
+	fmt.Printf("apiUsersLogin:\nToken:%v\nRefreshToken:%v\n", accessToken, refreshToken)
+	respondWithJSON(w, http.StatusOK, response{
+		User: User{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		},
+		Token:        accessToken,
+		RefreshToken: refreshToken,
+	})
+}
+
+func (cfg *apiConfig) apiRefresh(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("apiRefresh")
+	type response struct {
+		Token string `json:"token"`
+	}
+
+	refreshToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldn't find token", err)
+		return
+	}
+
+	user, err := cfg.DBQueries.GetUserFromRefreshToken(r.Context(), refreshToken)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't get user for refresh token", err)
+		return
+	}
+
+	accessToken, err := auth.MakeJWT(
+		user.ID,
+		cfg.SECRETKEY,
+		time.Hour,
+	)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't validate token", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, response{
+		Token: accessToken,
+	})
+}
+
+func (cfg *apiConfig) apiRevoke(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("apiRevoke")
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Not authorized", err)
+		return
+	}
+
+	err = cfg.DBQueries.RevokeRefreshToken(r.Context(), token)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot revoke token", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusNoContent, nil)
 }
