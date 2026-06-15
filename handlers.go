@@ -133,6 +133,10 @@ func (cfg *apiConfig) apiGetChirps(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (cfg *apiConfig) apiDeleteChirps(w http.ResponseWriter, r *http.Request) {
+
+}
+
 func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("apiUsers")
 	decoder := json.NewDecoder(r.Body)
@@ -166,6 +170,64 @@ func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: entry.UpdatedAt,
 		Email:     entry.Email,
 	})
+}
+
+func (cfg *apiConfig) apiChangeUsers(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	type response struct {
+		User
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+
+	authToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find token", err)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(authToken, cfg.SECRETKEY)
+	if userID == uuid.Nil {
+		respondWithError(w, http.StatusUnauthorized, "Not authorized", err)
+		return
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := apiUserRequest{}
+	err = decoder.Decode(&params)
+
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Cannot parse JSON", err)
+		return
+	}
+
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot hash password", err)
+		return
+	}
+
+	entry, err := cfg.DBQueries.UpdateEmailPasswordByID(r.Context(), database.UpdateEmailPasswordByIDParams{
+		Email:          params.Email,
+		HashedPassword: hashedPassword,
+		ID:             userID,
+	})
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot update user", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, User{
+		ID:        entry.ID,
+		CreatedAt: entry.CreatedAt,
+		UpdatedAt: entry.UpdatedAt,
+		Email:     entry.Email,
+	})
+
 }
 
 func (cfg *apiConfig) apiUsersLogin(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +305,7 @@ func (cfg *apiConfig) apiRefresh(w http.ResponseWriter, r *http.Request) {
 
 	refreshToken, err := auth.GetBearerToken(r.Header)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Couldn't find token", err)
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find token", err)
 		return
 	}
 
