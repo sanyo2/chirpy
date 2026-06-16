@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -99,15 +100,43 @@ func (cfg *apiConfig) apiAddChirp(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) apiGetChirps(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("apiGetChirps")
-	id := r.PathValue("chirpID")
+	chirpID := r.PathValue("chirpID")
+	authorIDString := r.URL.Query().Get("author_id")
+	sort := r.URL.Query().Get("sort")
+
+	authorID := uuid.Nil
+	if authorIDString != "" {
+		var err error
+		authorID, err = uuid.Parse(authorIDString)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Cannot get authorID", err)
+			return
+		}
+	}
 
 	var values []Chirp
 
-	if id == "" {
-		entries, err := cfg.DBQueries.GetAllChirps(r.Context())
+	if chirpID == "" {
+		var entries []database.Chirp
+		var err error
+		if authorID == uuid.Nil {
+			entries, err = cfg.DBQueries.GetAllChirps(r.Context())
+		} else {
+			entries, err = cfg.DBQueries.GetChirpsByUserID(r.Context(), authorID)
+		}
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Cannot get chirps", err)
 			return
+		}
+
+		if sort == "asc" {
+			slices.SortFunc(entries, func(a, b database.Chirp) int {
+				return a.CreatedAt.Compare(b.CreatedAt)
+			})
+		} else if sort == "desc" {
+			slices.SortFunc(entries, func(a, b database.Chirp) int {
+				return b.CreatedAt.Compare(a.CreatedAt)
+			})
 		}
 
 		for _, entry := range entries {
@@ -117,7 +146,7 @@ func (cfg *apiConfig) apiGetChirps(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusOK, values)
 
 	} else {
-		uuidVal, err := uuid.Parse(id)
+		uuidVal, err := uuid.Parse(chirpID)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Cannot parse UUID", err)
 			return
@@ -411,14 +440,11 @@ func (cfg *apiConfig) apiPolkaWebhook(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusUnauthorized, "invalid api token", err)
 		return
 	}
-
-	fmt.Printf("\n\nparams.Event: %v\n\n", params.Event)
 	if params.Event != "user.upgraded" {
 		respondWithJSON(w, http.StatusNoContent, nil)
 		return
 	}
 
-	fmt.Printf("\n\nuserid: %v\n\n", params.Data.UserID)
 	entry, err := cfg.DBQueries.UpdateToChirpyRed(r.Context(), params.Data.UserID)
 	if err != nil || entry.ID == uuid.Nil {
 		respondWithError(w, http.StatusBadRequest, "User not found", err)
