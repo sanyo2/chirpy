@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -101,7 +100,7 @@ func (cfg *apiConfig) apiAddChirp(w http.ResponseWriter, r *http.Request) {
 func (cfg *apiConfig) apiGetChirps(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("apiGetChirps")
 	id := r.PathValue("chirpID")
-	log.Println(id)
+
 	var values []Chirp
 
 	if id == "" {
@@ -134,7 +133,42 @@ func (cfg *apiConfig) apiGetChirps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) apiDeleteChirps(w http.ResponseWriter, r *http.Request) {
+	authToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find token", err)
+		return
+	}
 
+	userID, err := auth.ValidateJWT(authToken, cfg.SECRETKEY)
+	if userID == uuid.Nil {
+		respondWithError(w, http.StatusUnauthorized, "Not authorized", err)
+		return
+	}
+
+	id, err := uuid.Parse(r.PathValue("chirpID"))
+	if id == uuid.Nil || err != nil {
+		respondWithError(w, http.StatusNotFound, "Chirp ID is empty", err)
+		return
+	}
+
+	entries, err := cfg.DBQueries.GetChirpByID(r.Context(), id)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Cannot get chirps", err)
+		return
+	}
+
+	if entries.UserID != userID {
+		respondWithError(w, http.StatusForbidden, "Chirp update forbidden for this user", err)
+		return
+	}
+
+	err = cfg.DBQueries.DeleteChirpByID(r.Context(), id)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot delete chirp", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusNoContent, nil)
 }
 
 func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
