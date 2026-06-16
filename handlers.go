@@ -199,10 +199,11 @@ func (cfg *apiConfig) apiUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusCreated, User{
-		ID:        entry.ID,
-		CreatedAt: entry.CreatedAt,
-		UpdatedAt: entry.UpdatedAt,
-		Email:     entry.Email,
+		ID:          entry.ID,
+		CreatedAt:   entry.CreatedAt,
+		UpdatedAt:   entry.UpdatedAt,
+		Email:       entry.Email,
+		IsChirpyRed: entry.IsChirpyRed,
 	})
 }
 
@@ -256,10 +257,11 @@ func (cfg *apiConfig) apiChangeUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, User{
-		ID:        entry.ID,
-		CreatedAt: entry.CreatedAt,
-		UpdatedAt: entry.UpdatedAt,
-		Email:     entry.Email,
+		ID:          entry.ID,
+		CreatedAt:   entry.CreatedAt,
+		UpdatedAt:   entry.UpdatedAt,
+		Email:       entry.Email,
+		IsChirpyRed: entry.IsChirpyRed,
 	})
 
 }
@@ -321,10 +323,11 @@ func (cfg *apiConfig) apiUsersLogin(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("apiUsersLogin:\nToken:%v\nRefreshToken:%v\n", accessToken, refreshToken)
 	respondWithJSON(w, http.StatusOK, response{
 		User: User{
-			ID:        user.ID,
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
-			Email:     user.Email,
+			ID:          user.ID,
+			CreatedAt:   user.CreatedAt,
+			UpdatedAt:   user.UpdatedAt,
+			Email:       user.Email,
+			IsChirpyRed: user.IsChirpyRed,
 		},
 		Token:        accessToken,
 		RefreshToken: refreshToken,
@@ -375,6 +378,50 @@ func (cfg *apiConfig) apiRevoke(w http.ResponseWriter, r *http.Request) {
 	err = cfg.DBQueries.RevokeRefreshToken(r.Context(), token)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Cannot revoke token", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusNoContent, nil)
+}
+
+func (cfg *apiConfig) apiPolkaWebhook(w http.ResponseWriter, r *http.Request) {
+	type Data struct {
+		UserID uuid.UUID `json:"user_id"`
+	}
+	type parameters struct {
+		Event string `json:"event"`
+		Data  Data   `json:"data"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
+		return
+	}
+
+	apiKey, err := auth.GetApiKey(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find token", err)
+		return
+	}
+
+	if apiKey != cfg.POLKAKEY {
+		respondWithError(w, http.StatusUnauthorized, "invalid api token", err)
+		return
+	}
+
+	fmt.Printf("\n\nparams.Event: %v\n\n", params.Event)
+	if params.Event != "user.upgraded" {
+		respondWithJSON(w, http.StatusNoContent, nil)
+		return
+	}
+
+	fmt.Printf("\n\nuserid: %v\n\n", params.Data.UserID)
+	entry, err := cfg.DBQueries.UpdateToChirpyRed(r.Context(), params.Data.UserID)
+	if err != nil || entry.ID == uuid.Nil {
+		respondWithError(w, http.StatusBadRequest, "User not found", err)
 		return
 	}
 

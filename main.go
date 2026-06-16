@@ -21,6 +21,7 @@ func main() {
 		DBURL:     os.Getenv("DB_URL"),
 		PLATFORM:  os.Getenv("PLATFORM"),
 		SECRETKEY: os.Getenv("SECRET_KEY"),
+		POLKAKEY:  os.Getenv("POLKA_KEY"),
 	}
 
 	db, err := sql.Open("postgres", apiCFG.DBURL)
@@ -45,6 +46,7 @@ func main() {
 	mux.HandleFunc("POST /api/login", apiCFG.apiUsersLogin)
 	mux.HandleFunc("POST /api/refresh", apiCFG.apiRefresh)
 	mux.HandleFunc("POST /api/revoke", apiCFG.apiRevoke)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCFG.apiPolkaWebhook)
 	server := &http.Server{
 		Handler: mux,
 		Addr:    ":" + port,
